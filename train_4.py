@@ -8,6 +8,9 @@ import torch.utils.data as data
 from PIL import Image, ImageFile
 from tensorboardX import SummaryWriter
 from torchvision import transforms
+import numpy as np
+import os
+import itertools
 
 
 def calc_mean_std_0(feat, eps=1e-5):
@@ -20,7 +23,6 @@ def calc_mean_std_0(feat, eps=1e-5):
     feat_mean = feat.view(N, C, -1).mean(dim=2).view(N, C, 1, 1)
     return feat_mean, feat_std
 
-
 def calc_mean_std(feat, mask, eps=1e-5):
     # eps is a small value added to the variance to avoid divide-by-zero.
     size = feat.size()
@@ -32,9 +34,7 @@ def calc_mean_std(feat, mask, eps=1e-5):
     feat_mean = (feat_sum / mask_sum).view(N, C, 1, 1)
     
     feat_var_0 = feat.view(N, C, -1) - feat_mean.view(N, C, 1).expand(size)
-    #print(feat_var_0.size())
     feat_var_1 = torch.pow(feat_var_0, 2)
-    #print(feat_var_1.size())
     feat_var = torch.bmm(feat_var_1.view(N*C, 1, -1), mask.view(N*C, -1, 1)).sum(dim=2) + eps
     feat_std = feat_var.sqrt().view(N, C, 1, 1)
 
@@ -61,7 +61,6 @@ def adaptive_instance_normalization(content_feat, content_mask, style_feat, styl
 
     return (normalized_feat * style_std.expand(size) + style_mean.expand(size)) * content_mask
 
-
 def _calc_feat_flatten_mean_std(feat):
     # takes 3D feat (C, H, W), return mean and std of array within channels
     assert (feat.size()[0] == 3)
@@ -71,40 +70,9 @@ def _calc_feat_flatten_mean_std(feat):
     std = feat_flatten.std(dim=-1, keepdim=True)
     return feat_flatten, mean, std
 
-
 def _mat_sqrt(x):
     U, D, V = torch.svd(x)
     return torch.mm(torch.mm(U, D.pow(0.5).diag()), V.t())
-
-
-def coral(source, target):
-    # assume both source and target are 3D array (C, H, W)
-    # Note: flatten -> f
-
-    source_f, source_f_mean, source_f_std = _calc_feat_flatten_mean_std(source)
-    source_f_norm = (source_f - source_f_mean.expand_as(
-        source_f)) / source_f_std.expand_as(source_f)
-    source_f_cov_eye = \
-        torch.mm(source_f_norm, source_f_norm.t()) + torch.eye(3)
-
-    target_f, target_f_mean, target_f_std = _calc_feat_flatten_mean_std(target)
-    target_f_norm = (target_f - target_f_mean.expand_as(
-        target_f)) / target_f_std.expand_as(target_f)
-    target_f_cov_eye = \
-        torch.mm(target_f_norm, target_f_norm.t()) + torch.eye(3)
-
-    source_f_norm_transfer = torch.mm(
-        _mat_sqrt(target_f_cov_eye),
-        torch.mm(torch.inverse(_mat_sqrt(source_f_cov_eye)),
-                 source_f_norm)
-    )
-
-    source_f_transfer = source_f_norm_transfer * \
-                        target_f_std.expand_as(source_f_norm) + \
-                        target_f_mean.expand_as(source_f_norm)
-
-    return source_f_transfer.view(source.size())
-
 
 
 decoder_0 = nn.Sequential(
@@ -240,15 +208,11 @@ vgg = nn.Sequential(
     nn.ReLU()  # relu5-4
 )
 
-
 re = nn.Sequential(
     nn.MaxPool2d((2, 2), (2, 2), (0, 0), ceil_mode=True),
     nn.MaxPool2d((2, 2), (2, 2), (0, 0), ceil_mode=True),
     nn.MaxPool2d((2, 2), (2, 2), (0, 0), ceil_mode=True)
 )
-
-
-
 
 
 class Net(nn.Module):
@@ -284,7 +248,6 @@ class Net(nn.Module):
         return input
 
     def calc_content_loss(self, input, target):
-        # print(input.size(), target.size())
         target = target.unsqueeze(dim = 0)
         assert (input.size() == target.size())
         assert (target.requires_grad is False)
@@ -330,17 +293,16 @@ class Net(nn.Module):
                     one-style_mask_temp)
                 
                 t_l  = torch.cat((t_0, t_1), dim=1)
-                # t = alpha * t + (1 - alpha) * content_feat 
                 g_t_i_1 = self.decoder_1(t_l)  
             else:
                 g_t_i_1 = g_t_i_0
 
             g_t_i = torch.cat((g_t_i_0, g_t_i_1), dim=1)
-            g_t_i = self.convs(g_t_i)#genreated image 三通道图像
+            g_t_i = self.convs(g_t_i)
             g_t.append(g_t_i) 
             g_t_feats = self.encode_with_intermediate(g_t_i)
 
-            loss_c += self.calc_content_loss(g_t_feats[-1], content_feat[i,:,:,:])# 0810
+            loss_c += self.calc_content_loss(g_t_feats[-1], content_feat[i,:,:,:])
             loss_s += self.calc_style_loss(g_t_feats[0], style_feats[0][i,:,:,:].unsqueeze(0))
             for q in range(1, 4):
                 loss_s += self.calc_style_loss(g_t_feats[q], style_feats[q][i,:,:,:].unsqueeze(0))
@@ -349,12 +311,9 @@ class Net(nn.Module):
         loss_s = loss_s / 8
         
         return g_t, loss_c, loss_s
-        
-import numpy as np
 
 
 def InfiniteSampler(n):
-    # i = 0
     i = n - 1
     order = np.random.permutation(n)
     while True:
@@ -377,36 +336,25 @@ class InfiniteSamplerWrapper(data.sampler.Sampler):
         return 2 ** 31 
 
 
-
 cudnn.benchmark = True
 Image.MAX_IMAGE_PIXELS = None  # Disable DecompressionBombError
-# Disable OSError: image file is truncated
-ImageFile.LOAD_TRUNCATED_IMAGES = True
+ImageFile.LOAD_TRUNCATED_IMAGES = True  # Disable OSError: image file is truncated
 
 
 def train_transform():
     transform_list = [
-        #transforms.Resize(size=(512, 512)),
-        #transforms.RandomCrop(256),
         transforms.Resize([256,256]),
         transforms.ToTensor()
     ]
     return transforms.Compose(transform_list)
 
-def mask_transform():
-    transform_list = [
-        transforms.Resize([32,32]),
-        transforms.ToTensor()
-    ]
-    return transforms.Compose(transform_list)
 
 class FlatFolderDataset(data.Dataset):
     def __init__(self, root, root_mask, transform):
         super(FlatFolderDataset, self).__init__()
-        self.root = root #100
-        self.root_mask = root_mask #99
+        self.root = root 
+        self.root_mask = root_mask 
         self.paths = os.listdir(root_mask)
-        # print(self.paths)
         self.transform = transform
 
     def __getitem__(self, index):
@@ -417,7 +365,6 @@ class FlatFolderDataset(data.Dataset):
         mask = Image.open(mask_name).convert('1')
         img = self.transform(img)
         mask = self.transform(mask)
-        # print(img.size(), mask.size())
         item = {'img': img, 'mask':mask ,'name': path} #put the image and its name together into item(dict)
         return item
 
@@ -429,28 +376,27 @@ class FlatFolderDataset(data.Dataset):
 
 
 def adjust_learning_rate(optimizer, iteration_count):
-    """Imitating the original implementation"""
     lr = args.lr / (1.0 + args.lr_decay * iteration_count)
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr
 
-import os
+        
 parser = argparse.ArgumentParser()
 # Basic options
-parser.add_argument('--content_dir', type=str, default='/student_1/lyt/measurement/saliency_mask/data/trainC',
-                    help='Directory path to a batch of content images')
-parser.add_argument('--style_dir', type=str, default='/student_1/lyt/measurement/saliency_mask/data/trainS',
-                    help='Directory path to a batch of style images')
-parser.add_argument('--vgg', type=str, default='/student_1/lyt/measurement/Adain_new/vgg_normalised.pth')
-parser.add_argument('--content_mask_dir', type=str, default='/student_1/lyt/measurement/saliency_mask/test_res_07-26-22-37-04/trainC/mask',
-                    help='Directory path to a batch of content_mask images')
-parser.add_argument('--style_mask_dir', type=str, default='/student_1/lyt/measurement/saliency_mask/train_S_re',
-                    help='Directory path to a batch of style_mask images')
+parser.add_argument('--content_dir', type=str, default='./image/trainC',
+                    help='Directory path to content images')
+parser.add_argument('--style_dir', type=str, default='./image/trainS',
+                    help='Directory path to style images')
+parser.add_argument('--vgg', type=str, default='./vgg_normalised.pth')
+parser.add_argument('--content_mask_dir', type=str, default='./mask/trainC',
+                    help='Directory path to content masks')
+parser.add_argument('--style_mask_dir', type=str, default='./mask/trainS',
+                    help='Directory path to style masks')
 
 # training options
-parser.add_argument('--save_dir', default='/student_1/lyt/measurement/Adain_new/experiments_4',
+parser.add_argument('--save_dir', default='./experiments',
                     help='Directory to save the model')
-parser.add_argument('--log_dir', default='/student_1/lyt/measurement/Adain_new/log_train_4',
+parser.add_argument('--log_dir', default='./log_train',
                     help='Directory to save the log')
 parser.add_argument('--lr', type=float, default=1e-4)
 parser.add_argument('--lr_decay', type=float, default=5e-5)
@@ -482,7 +428,6 @@ network.to(device)
 
 content_tf = train_transform()
 style_tf = train_transform()
-#mask_tf = mask_transform()
 
 content_dataset = FlatFolderDataset(args.content_dir, args.content_mask_dir, content_tf)
 style_dataset = FlatFolderDataset(args.style_dir, args.style_mask_dir, style_tf)
@@ -495,8 +440,6 @@ style_iter = iter(data.DataLoader(
     style_dataset, batch_size=args.batch_size,
     sampler=InfiniteSamplerWrapper(style_dataset),
     num_workers=args.n_threads))
-import itertools
-
 
 optimizer = torch.optim.Adam(itertools.chain(network.decoder_0.parameters(),network.decoder_1.parameters(),network.convs.parameters()), lr=args.lr)
 
@@ -510,18 +453,14 @@ for i in tqdm(range(args.max_iter)):
     style_mask = style['mask'].cuda()
     g_t, loss_c, loss_s = network(content_image, content_mask, style_image, style_mask)
 
-    
     loss_c = args.content_weight * loss_c
     loss_s = args.style_weight * loss_s
     loss = loss_c + loss_s
-
-    # print(loss)
 
     optimizer.zero_grad()
     loss.backward()
     optimizer.step()
    
-
     writer.add_scalar('loss_content', loss_c.item(), i + 1)
     writer.add_scalar('loss_style', loss_s.item(), i + 1)
     writer.add_image('content_image', content_image[0,:,:,:],i+1)
@@ -546,7 +485,7 @@ for i in tqdm(range(args.max_iter)):
             state_dict[key] = state_dict[key].to(torch.device('cpu'))
         torch.save(state_dict, save_dir /
                    'convs_iter_{:d}.pth.tar'.format(i + 1))
-    # print(i)
+
 writer.close()
 
 
