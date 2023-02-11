@@ -261,8 +261,7 @@ class Net(nn.Module):
         return self.mse_loss(input_mean, target_mean) + \
                self.mse_loss(input_std, target_std)
 
-    def forward(self, content, cm, style, sm, alpha=1.0):
-        assert 0 <= alpha <= 1
+    def forward(self, content, cm, style, sm):
         style_feats = self.encode_with_intermediate(style)
         content_feat = self.encode(content)
         style_feat = style_feats[-1]
