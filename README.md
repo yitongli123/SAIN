@@ -25,7 +25,7 @@ Create directories and put corresponding data into them according to the pairs b
 Note: The saliency masks need to be created using the algorithm achieved at "https://github.com/Kinpzz/UDASOD-UPL"
 or other salient object detection methods. And the saliency masks should have the same names as their corresponding 
 images. Additionally, you need to download the parameters of pretrained VGG network
-"vgg_normalized.pth" at "https://drive.google.com/file/d/1EpkBA2K2eYILDSyPTt0fztz59UjAIpZU/view?usp=sharing".
+"vgg_normalised.pth" at "https://drive.google.com/file/d/1EpkBA2K2eYILDSyPTt0fztz59UjAIpZU/view?usp=sharing".
 
 # Train
 
