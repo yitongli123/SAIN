@@ -1,6 +1,9 @@
 # SAIN
 
-A SALIENCY-AWARE METHOD FOR ARBITRARY STYLE TRANSFER
+> __A SALIENCY-AWARE METHOD FOR ARBITRARY STYLE TRANSFER__  
+> _Yitong Li, Jie Ma*_  
+> _2023 IEEE International Conference on Image Processing (ICIP), 08-11 October 2023_  
+> [Paper](https://ieeexplore.ieee.org/document/10222355)
 
 # Preparation
 
